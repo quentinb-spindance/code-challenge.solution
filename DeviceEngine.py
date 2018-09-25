@@ -36,7 +36,7 @@ timeStamp = 0
 windowSize = 4
 intervalSize = 2
 
-debug = True
+debug = False
 
 def main(argv):
     # Parse command-line arguments
@@ -122,7 +122,7 @@ def pulldata():
         data_reader = csv.DictReader(csvFile)
         for row in data_reader:
 
-            time.sleep(1)
+            time.sleep(1)  # Below waits of 1 second AWS tends to start timing out when I push
 
             row_temp = float(row['temperature'])
             row_hmd = float(row['humidity'])
@@ -173,8 +173,7 @@ def pulldata():
             cur_window += 1
             cur_interval += 1
 
-            if (cur_interval % intervalSize) == 0 and cur_window >= windowSize:
-
+            if (cur_window % windowSize) == 0:
                 # minimum values
                 mydatalist[1] = min_temp
                 mydatalist[4] = min_hmd
@@ -194,10 +193,9 @@ def pulldata():
                     print("\n\n***Average data for last window***\n-Temp:",mydatalist[3], "\n-Humidity:", mydatalist[6],
                           "\n-Pressure:", mydatalist[9], "\n\n")
 
-                publishtocloud(formatasjson(mydatalist))
+            if (cur_interval % intervalSize) == 0 and cur_window >= windowSize:
 
-                # reset data for next pull
-                mydatalist = [None] * 10
+                publishtocloud(formatasjson(mydatalist))
 
 
 if __name__ == "__main__":
