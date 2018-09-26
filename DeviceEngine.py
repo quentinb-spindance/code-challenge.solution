@@ -10,6 +10,7 @@ import time
 import getopt
 
 from AWSIoTPythonSDK.MQTTLib import AWSIoTMQTTClient
+from AWSIoTPythonSDK.exception import AWSIoTExceptions
 
 ###############
 # AWS IOT CONFIGURATION
@@ -21,9 +22,10 @@ myMQTTClient.configureCredentials("certificates/CA.pem",
                                   "certificates/private.pem.key",
                                   "certificates/cert.pem.crt")
 
+myMQTTClient.configureAutoReconnectBackoffTime(1, 128, 20)
 myMQTTClient.configureOfflinePublishQueueing(-1)  # Infinite offline Publish queueing
 myMQTTClient.configureDrainingFrequency(2)  # Draining: 2 Hz
-myMQTTClient.configureConnectDisconnectTimeout(10)  # 10 sec
+myMQTTClient.configureConnectDisconnectTimeout(5)  # 10 sec
 myMQTTClient.configureMQTTOperationTimeout(5)  # 5 sec
 
 ################
@@ -37,6 +39,7 @@ windowSize = 4
 intervalSize = 2
 
 debug = False
+MAX_CONNECT_ATTEMPTS = 5
 
 def main(argv):
     # Parse command-line arguments
@@ -54,10 +57,10 @@ def main(argv):
             debug = True
         elif opt in ("-w", "--window"):
             global windowSize
-            windowSize = arg
+            windowSize = int(arg)
         elif opt in ("-i", "--interval"):
             global intervalSize
-            intervalSize = arg
+            intervalSize = int(arg)
 
     pulldata()
 
@@ -65,10 +68,7 @@ def main(argv):
 def formatasjson(datalist):
     global debug
 
-    if len(datalist) != 10:
-        if debug:
-            print("Error: Incorrect number of data values supplied.")
-    else:
+    if len(datalist) == 10:
         json_payload = json.dumps({"timestamp": datalist[0],
                                   "min-temperature": datalist[1],
                                   "max-temperature": datalist[2],
@@ -82,20 +82,47 @@ def formatasjson(datalist):
                                   })
 
         if debug:
-            print("JSON Payload created.")
+            print("JSON Payload (diagnostic) created.")
         return json_payload
-
-
-def publishtocloud(jsonpayload):
-    global debug
-    myMQTTClient.connect()
-
-    if myMQTTClient.publish("things/ConnectedSensor/readings", jsonpayload, 0):
+    elif len(datalist) == 4:
+        json_payload = json.dumps({"timestamp": datalist[0],
+                                   "temperature": datalist[1],
+                                   "humidity": datalist[2],
+                                   "pressure": datalist[3]
+                                   })
         if debug:
-            print("Successfully published latest readings to AWS.")
+            print("JSON Payload (reading) created.")
+        return json_payload
     else:
         if debug:
-            print("Failed to publish!")
+            print("Error: Incorrect number of data values supplied. Expected either 4 or 10 values.")
+
+
+def publishtocloud(jsonpayload, mytopic = "things/ConnectedSensor/diagnostics", attempts = 0):
+    global debug
+    time.sleep(1)  # Used to prevent timeouts
+
+    try:
+
+        myMQTTClient.connect()
+
+        if myMQTTClient.publish(mytopic, jsonpayload, 0):
+            if debug:
+                print("Successfully published to AWS.")
+        else:
+            if debug:
+                print("Failed to publish!")
+
+    except AWSIoTExceptions.connectTimeoutException:
+
+        global MAX_CONNECT_ATTEMPTS
+        if attempts < MAX_CONNECT_ATTEMPTS:
+            if debug:
+                print(f"Error: Connection timed out. Retrying ({attempts} of {MAX_CONNECT_ATTEMPTS})...\n")
+            publishtocloud(jsonpayload, mytopic, attempts+1)
+        else:
+            print("Maximum number of connect attempts reached!")
+            exit(1)
 
     myMQTTClient.disconnect()
 
@@ -109,11 +136,11 @@ def pulldata():
     cur_window = 0
     cur_interval = 0
 
-    mydatalist = [None] * 10
+    my_diag_list = [None] * 10
 
     temp_window = [None] * windowSize
-    hmd_window = [0, 0, 0, 0]
-    psi_window = [0, 0, 0, 0]
+    hmd_window = [None] * windowSize
+    psi_window = [None] * windowSize
 
     max_temp, max_hmd, max_psi = (0, 0, 0)
     min_temp, min_hmd, min_psi = (sys.maxsize, sys.maxsize, sys.maxsize)
@@ -122,12 +149,15 @@ def pulldata():
         data_reader = csv.DictReader(csvFile)
         for row in data_reader:
 
-            time.sleep(1)  # Below waits of 1 second AWS tends to start timing out when I push
-
             row_temp = float(row['temperature'])
             row_hmd = float(row['humidity'])
             row_psi = float(row['pressure'])
-            mydatalist[0] = float(row['timestamp'])
+            my_diag_list[0] = float(row['timestamp'])
+
+            my_read_list = [my_diag_list[0],row_temp,row_hmd,row_psi]
+
+            # Publish each reading
+            publishtocloud(formatasjson(my_read_list),"things/ConnectedSensor/readings")
 
             # Rolling window -- append the current temp to the modulo of the window size
             cur_pos = cur_window % windowSize
@@ -173,29 +203,31 @@ def pulldata():
             cur_window += 1
             cur_interval += 1
 
+
+
             if (cur_window % windowSize) == 0:
                 # minimum values
-                mydatalist[1] = min_temp
-                mydatalist[4] = min_hmd
-                mydatalist[7] = min_psi
+                my_diag_list[1] = min_temp
+                my_diag_list[4] = min_hmd
+                my_diag_list[7] = min_psi
 
                 # maximum values
-                mydatalist[2] = max_temp
-                mydatalist[5] = max_hmd
-                mydatalist[8] = max_psi
+                my_diag_list[2] = max_temp
+                my_diag_list[5] = max_hmd
+                my_diag_list[8] = max_psi
 
                 # average values
-                mydatalist[3] = (sum(temp_window) / len(temp_window))
-                mydatalist[6] = (sum(hmd_window) / len(hmd_window))
-                mydatalist[9] = (sum(psi_window) / len(psi_window))
+                my_diag_list[3] = (sum(temp_window) / len(temp_window))
+                my_diag_list[6] = (sum(hmd_window) / len(hmd_window))
+                my_diag_list[9] = (sum(psi_window) / len(psi_window))
 
                 if debug:
-                    print("\n\n***Average data for last window***\n-Temp:",mydatalist[3], "\n-Humidity:", mydatalist[6],
-                          "\n-Pressure:", mydatalist[9], "\n\n")
+                    print("\n\n***Average data for last window***\n-Temp:",my_diag_list[3], "\n-Humidity:", my_diag_list[6],
+                          "\n-Pressure:", my_diag_list[9], "\n\n")
 
             if (cur_interval % intervalSize) == 0 and cur_window >= windowSize:
 
-                publishtocloud(formatasjson(mydatalist))
+                publishtocloud(formatasjson(my_diag_list))
 
 
 if __name__ == "__main__":
