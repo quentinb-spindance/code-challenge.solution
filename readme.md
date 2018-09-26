@@ -9,4 +9,20 @@ This is coded in python3 and requires (aside from corelibs), the [AWS IoT Python
 
 Once you've installed the requirements, you can run the code from terminal, with several options for arguments:
 
-    -d / --debug / -v / --verbose
+    -d | --debug | -v | --verbose
+* This will run the code with verbose statements, useful for debugging.
+
+
+    -w [d] | --window [d]
+
+* Sets window size (for averages) to *d*. Default size is 4.
+
+
+    -i [d] | --interval [d]
+
+* Sets the report interval to *d*. Default interval is 2.
+
+Note that if you have both python 2 and python 3 installed, you will need to invoke this code with: 
+    
+    python3 <command name>
+    
