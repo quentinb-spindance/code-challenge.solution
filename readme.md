@@ -15,12 +15,12 @@ This will run the code with verbose statements, useful for debugging.
 
     -w [d] | --window [d]
 
-Sets window size (for averages) to *d*. Default size is 4.
+Sets window size (for averages) to *d*, if d > 0. Default size is 4.
 
 
     -i [d] | --interval [d]
 
-Sets the report interval to *d*. Default interval is 2.
+Sets the report interval to *d*, if d > 0. Default interval is 2.
 
 Note that if you have both python 2 and python 3 installed, you will need to invoke this code with: 
     

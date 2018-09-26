@@ -41,10 +41,11 @@ intervalSize = 2
 debug = False
 MAX_CONNECT_ATTEMPTS = 5
 
+
 def main(argv):
     # Parse command-line arguments
     try:
-        opts, args = getopt.getopt(argv,"hdvw:i:", ["debug", "verbose", "help","window=","interval="])
+        opts, args = getopt.getopt(argv, "hdvw:i:", ["debug", "verbose", "help", "window=", "interval="])
     except getopt.GetoptError:
         print("DeviceEngine.py [-d] [-w] [-i]")
         sys.exit(2)
@@ -57,10 +58,12 @@ def main(argv):
             debug = True
         elif opt in ("-w", "--window"):
             global windowSize
-            windowSize = int(arg)
+            if int(arg) > 0:
+                windowSize = int(arg)
         elif opt in ("-i", "--interval"):
             global intervalSize
-            intervalSize = int(arg)
+            if int(arg) > 0:
+                intervalSize = int(arg)
 
     pulldata()
 
@@ -70,20 +73,21 @@ def formatasjson(datalist):
 
     if len(datalist) == 10:
         json_payload = json.dumps({"timestamp": datalist[0],
-                                  "min-temperature": datalist[1],
-                                  "max-temperature": datalist[2],
-                                  "avg-temperature": datalist[3],
-                                  "min-humidity": datalist[4],
-                                  "max-humidity": datalist[5],
-                                  "avg-humidity": datalist[6],
-                                  "min-pressure": datalist[7],
-                                  "max-pressure": datalist[8],
-                                  "avg-pressure": datalist[9]
-                                  })
+                                   "min-temperature": datalist[1],
+                                   "max-temperature": datalist[2],
+                                   "avg-temperature": datalist[3],
+                                   "min-humidity": datalist[4],
+                                   "max-humidity": datalist[5],
+                                   "avg-humidity": datalist[6],
+                                   "min-pressure": datalist[7],
+                                   "max-pressure": datalist[8],
+                                   "avg-pressure": datalist[9]
+                                   })
 
         if debug:
             print("JSON Payload (diagnostic) created.")
         return json_payload
+
     elif len(datalist) == 4:
         json_payload = json.dumps({"timestamp": datalist[0],
                                    "temperature": datalist[1],
@@ -93,12 +97,13 @@ def formatasjson(datalist):
         if debug:
             print("JSON Payload (reading) created.")
         return json_payload
+
     else:
         if debug:
             print("Error: Incorrect number of data values supplied. Expected either 4 or 10 values.")
 
 
-def publishtocloud(jsonpayload, mytopic = "things/ConnectedSensor/diagnostics", attempts = 0):
+def publishtocloud(jsonpayload, mytopic="things/ConnectedSensor/diagnostics", attempts=0):
     global debug
     time.sleep(1)  # Used to prevent timeouts
 
@@ -119,7 +124,7 @@ def publishtocloud(jsonpayload, mytopic = "things/ConnectedSensor/diagnostics", 
         if attempts < MAX_CONNECT_ATTEMPTS:
             if debug:
                 print(f"Error: Connection timed out. Retrying ({attempts} of {MAX_CONNECT_ATTEMPTS})...\n")
-            publishtocloud(jsonpayload, mytopic, attempts+1)
+            publishtocloud(jsonpayload, mytopic, attempts + 1)
         else:
             print("Maximum number of connect attempts reached!")
             exit(1)
@@ -128,7 +133,6 @@ def publishtocloud(jsonpayload, mytopic = "things/ConnectedSensor/diagnostics", 
 
 
 def pulldata():
-
     global debug
     global windowSize
     global intervalSize
@@ -154,10 +158,10 @@ def pulldata():
             row_psi = float(row['pressure'])
             my_diag_list[0] = float(row['timestamp'])
 
-            my_read_list = [my_diag_list[0],row_temp,row_hmd,row_psi]
+            my_read_list = [my_diag_list[0], row_temp, row_hmd, row_psi]
 
             # Publish each reading
-            publishtocloud(formatasjson(my_read_list),"things/ConnectedSensor/readings")
+            publishtocloud(formatasjson(my_read_list), "things/ConnectedSensor/readings")
 
             # Rolling window -- append the current temp to the modulo of the window size
             cur_pos = cur_window % windowSize
@@ -203,8 +207,6 @@ def pulldata():
             cur_window += 1
             cur_interval += 1
 
-
-
             if (cur_window % windowSize) == 0:
                 # minimum values
                 my_diag_list[1] = min_temp
@@ -222,14 +224,13 @@ def pulldata():
                 my_diag_list[9] = (sum(psi_window) / len(psi_window))
 
                 if debug:
-                    print("\n\n***Average data for last window***\n-Temp:",my_diag_list[3], "\n-Humidity:", my_diag_list[6],
+                    print("\n\n***Average data for last window***\n-Temp:", my_diag_list[3], "\n-Humidity:",
+                          my_diag_list[6],
                           "\n-Pressure:", my_diag_list[9], "\n\n")
 
             if (cur_interval % intervalSize) == 0 and cur_window >= windowSize:
-
                 publishtocloud(formatasjson(my_diag_list))
 
 
 if __name__ == "__main__":
     main(sys.argv[1:])
-
